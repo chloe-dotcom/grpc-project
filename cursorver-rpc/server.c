@@ -23,6 +23,17 @@ static void handle_sigint(int signo) {
     running = 0;
 }
 
+#include <signal.h>
+
+static void install_handler(int signo) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = handle_sigint;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(signo, &sa, NULL);
+}
+
 static ssize_t read_line(int fd, char *buf, size_t buflen) {
     size_t total = 0;
 
@@ -161,8 +172,10 @@ int main(void) {
     struct sockaddr_in addr;
     int opt = 1;
 
-    signal(SIGINT, handle_sigint);
-    signal(SIGTERM, handle_sigint);
+    // signal(SIGINT, handle_sigint);
+    // signal(SIGTERM, handle_sigint);
+    install_handler(SIGINT);
+    install_handler(SIGTERM);
 
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
