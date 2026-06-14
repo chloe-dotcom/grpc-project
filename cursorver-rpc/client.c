@@ -54,7 +54,12 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    if (write_all(sock, "get_time\n", strlen("get_time\n")) != 0) {
+    // if (write_all(sock, "get_time\n", strlen("get_time\n")) != 0) {
+    //     close(sock);
+    //     return EXIT_FAILURE;
+    // }
+
+    if (write_all(sock, "get_hostname\n", strlen("get_hostname\n")) != 0) {
         close(sock);
         return EXIT_FAILURE;
     }

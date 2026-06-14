@@ -1,7 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <arpa/inet.h>
-#include <dirent.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -11,10 +10,12 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+#include <limits.h>
 
 #define PORT 8787
 #define BACKLOG 8
 #define BUF_SIZE 256
+#define HOST_NAME_MAX 255
 
 static volatile sig_atomic_t running = 1;
 
@@ -99,41 +100,18 @@ static int handle_get_time(int client_fd) {
     return write_all(client_fd, response, strlen(response));
 }
 
-static int handle_list_dir(int client_fd, const char *path) {
-    DIR *dir = opendir(path);
+static int handle_get_hostname(int client_fd) {
+    char response[BUF_SIZE];
+    char hostname[HOST_NAME_MAX + 1];
 
-    if (dir == NULL) {
-        char response[BUF_SIZE];
+    if (gethostname(hostname, sizeof(hostname)) != 0) {
         snprintf(response, sizeof(response), "ERROR %s\n", strerror(errno));
-        return write_all(client_fd, response, strlen(response));
+    } else {
+        hostname[sizeof(hostname) - 1] = '\0';  // ensure termination
+        snprintf(response, sizeof(response), "OK %s\n", hostname);
     }
 
-    if (write_line(client_fd, "OK") != 0) {
-        closedir(dir);
-        return -1;
-    }
-
-    for (;;) {
-        errno = 0;
-        struct dirent *entry = readdir(dir);
-        if (entry == NULL) {
-            if (errno != 0) {
-                closedir(dir);
-                return -1;
-            }
-            break;
-        }
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-        if (write_line(client_fd, entry->d_name) != 0) {
-            closedir(dir);
-            return -1;
-        }
-    }
-
-    closedir(dir);
-    return write_line(client_fd, "END");
+    return write_all(client_fd, response, strlen(response));
 }
 
 static int handle_client(int client_fd) {
@@ -152,16 +130,8 @@ static int handle_client(int client_fd) {
         return handle_get_time(client_fd);
     }
 
-    if (strncmp(request, "list_dir", 8) == 0 &&
-        (request[8] == '\0' || request[8] == ' ')) {
-        const char *path = request + 8;
-        while (*path == ' ') {
-            path++;
-        }
-        if (*path == '\0') {
-            path = ".";
-        }
-        return handle_list_dir(client_fd, path);
+    if (strcmp(request, "get_hostname") == 0) {
+        return handle_get_hostname(client_fd);
     }
 
     return write_line(client_fd, "ERROR unknown_request");
@@ -206,7 +176,7 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    printf("RPC server listening on port %d (commands: get_time, list_dir)\n", PORT);
+    printf("RPC server listening on port %d (commands: get_time, get_hostname)\n", PORT);
 
     while (running) {
         struct sockaddr_in client_addr;
