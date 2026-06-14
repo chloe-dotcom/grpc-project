@@ -11,6 +11,9 @@
 #include <time.h>
 #include <unistd.h>
 #include <limits.h>
+#include <unistd.h>
+#include <prom.h>
+#include <promhttp.h>
 
 #define PORT 8787
 #define BACKLOG 8
