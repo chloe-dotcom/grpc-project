@@ -179,13 +179,35 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+	// initialize default Prometheus collector registry
+	if (prom_collector_registry_default_init() != 0) {
+		fprintf(stderr, "Failed to initialize Prometheus registry");
+		return 1;
+	}
+
+    // bind registry to HTTP component (without it, PromHTTP server cannot find metric registry)
+    promhttp_set_active_collector_registry(PROM_COLLECTOR_REGISTRY_DEFAULT);
+
+	// create and register custom counter metric
+    const char *keys[] = {};
+	prom_counter_t *request_counter = prom_collector_registry_must_register_metric(
+		prom_counter_new("server_requests_total", "Total number of processed requests", 0, keys)
+	);
+	
+	// start Prometheus HTTP server on port 8000
+	struct MHD_Daemon *daemon = promhttp_start_daemon(MHD_USE_SELECT_INTERNALLY, 8000, NULL, NULL);
+	if(!daemon) {
+		fprintf(stderr, "Failed to start Prometheus HTTP daemon\n");
+		return 1;
+	}
+
     printf("RPC server listening on port %d (commands: get_time, get_hostname)\n", PORT);
 
     while (running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
-
+	
         if (client_fd < 0) {
             if (errno == EINTR) {
                 continue;
@@ -196,6 +218,11 @@ int main(void) {
 
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+
+		// increment our metric by 1
+        const char *values[] = {};
+		prom_counter_inc(request_counter, values);
+
         printf("client connected from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
         handle_client(client_fd);
@@ -204,5 +231,7 @@ int main(void) {
 
     close(server_fd);
     printf("server stopped\n");
+	MHD_stop_daemon(daemon);
+
     return EXIT_SUCCESS;
 }
