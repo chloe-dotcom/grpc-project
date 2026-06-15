@@ -3,8 +3,7 @@ CFLAGS = -Wall -Wextra -O2 -std=c11
 
 HB := $(shell brew --prefix)
 SERVER_CFLAGS = -I$(HB)/include
-SERVER_LDFLAGS = -L$(HB)/lib -lprom -lpromhttp -lmicrohttpd
-
+SERVER_LDFLAGS = -L$(HB)/lib -lprom -lpromhttp -lmicrohttpd -lpthread -Wl,-rpath,$(HB)/lib
 TARGETS = server client
 
 .PHONY: all clean run-server run-client
