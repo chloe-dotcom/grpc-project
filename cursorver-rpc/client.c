@@ -28,8 +28,9 @@ static int write_all(int fd, const char *buf, size_t len) {
 }
 
 int main(int argc, char *argv[]) {
-    const char *host = (argc > 1) ? argv[1] : HOST;
-    int port = (argc > 2) ? atoi(argv[2]) : PORT;
+    const char *command = (argc > 1) ? argv[1]: "get_time";
+    const char *host = (argc > 2) ? argv[2] : HOST;
+    int port = (argc > 3) ? atoi(argv[3]) : PORT;
 
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -54,15 +55,19 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    if (write_all(sock, "get_time\n", strlen("get_time\n")) != 0) {
+    // build and send <command>
+    char request[BUF_SIZE];
+    int len = snprintf(request, sizeof(request), "%s\n", command);
+    if (len < 0 || (size_t)len >= sizeof(request)) {
+        fprintf(stderr, "command too long\n");
         close(sock);
         return EXIT_FAILURE;
     }
 
-    // if (write_all(sock, "get_hostname\n", strlen("get_hostname\n")) != 0) {
-    //     close(sock);
-    //     return EXIT_FAILURE;
-    // }
+    if (write_all(sock, request, (size_t)len) != 0) {
+        close(sock);
+        return EXIT_FAILURE;
+    }
 
     char buf[BUF_SIZE];
     ssize_t n = read(sock, buf, sizeof(buf) - 1);
