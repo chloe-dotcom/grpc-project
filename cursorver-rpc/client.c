@@ -76,6 +76,7 @@ int main(int argc, char *argv[]) {
         close(sock);
         return EXIT_FAILURE;
     }
+    
     buf[n] = '\0';
 
     fputs(buf, stdout);

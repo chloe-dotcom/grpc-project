@@ -16,11 +16,14 @@
 #include <promhttp.h>
 
 #define PORT 8787
-#define BACKLOG 8
+#define BACKLOG 8 // kernel accept queue
 #define BUF_SIZE 256
 #define HOST_NAME_MAX 255
 
 static volatile sig_atomic_t running = 1;
+
+// note: prometheus-client-c library uses atomic ops/internal locking (so counter is safe read/write)
+static prom_counter_t *request_counter = NULL;
 
 static void handle_sigint(int signo) {
     (void)signo;
@@ -130,13 +133,16 @@ static int handle_client(int client_fd) {
     }
 
     if (strcmp(request, "get_time") == 0) {
+        prom_counter_inc(request_counter, (const char*[]){"get_time"});
         return handle_get_time(client_fd);
     }
 
     if (strcmp(request, "get_hostname") == 0) {
+        prom_counter_inc(request_counter, (const char*[]){"get_hostname"});
         return handle_get_hostname(client_fd);
     }
 
+    prom_counter_inc(request_counter, (const char*[]){"unknown"});
     return write_line(client_fd, "ERROR unknown_request");
 }
 
@@ -189,12 +195,12 @@ int main(void) {
     promhttp_set_active_collector_registry(PROM_COLLECTOR_REGISTRY_DEFAULT);
 
 	// create and register custom counter metric
-    const char *keys[] = {};
-	prom_counter_t *request_counter = prom_collector_registry_must_register_metric(
-		prom_counter_new("server_requests_total", "Total number of processed requests", 0, keys)
+    const char *keys[] = { "command" };
+	request_counter = prom_collector_registry_must_register_metric(
+		prom_counter_new("server_requests_total", "Total number of processed requests", 1, keys)
 	);
 	
-	// start Prometheus HTTP server on port 8000
+	// start Prometheus HTTP server on port 8000 (background thread)
 	struct MHD_Daemon *daemon = promhttp_start_daemon(MHD_USE_SELECT_INTERNALLY, 8000, NULL, NULL);
 	if(!daemon) {
 		fprintf(stderr, "Failed to start Prometheus HTTP daemon\n");
@@ -218,10 +224,6 @@ int main(void) {
 
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-
-		// increment our metric by 1
-        const char *values[] = {};
-		prom_counter_inc(request_counter, values);
 
         printf("client connected from %s:%d\n", client_ip, ntohs(client_addr.sin_port));
 
