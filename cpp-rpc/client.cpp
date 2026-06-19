@@ -43,9 +43,15 @@ int write_all(int fd, std::string_view data) {
 
 int main(int argc, char* argv[]) {
     std::vector<std::string_view> args(argv, argv + argc);
-    std::string command = args.size() > 1 ? std::string(args[1]) : "get_time";
-    std::string host    = args.size() > 2 ? std::string(args[2]) : kHost;
-    int port            = args.size() > 3 ? std::stoi(std::string(args[3])) : kPort;
+    std::string command;
+    for (int i = 1; i < argc; ++i) {
+        if (i > 1) command += " ";
+        command += argv[i];
+    }
+    if (command.empty()) command = "get_time";
+
+    std::string host    = kHost;
+    int port            = kPort;
 
     Fd sock(::socket(AF_INET, SOCK_STREAM, 0));
     if (sock.get() < 0) { std::perror("socket"); return EXIT_FAILURE; }

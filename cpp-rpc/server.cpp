@@ -11,12 +11,30 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
+
 extern "C" {
 #include <prom.h>
 #include <promhttp.h>
 }
 
 namespace {
+
+class Students {
+    public:
+    struct Student { std::string name; int age; };
+
+    void add(std::string name, int age) {
+        students_.push_back({std::move(name), age});
+    }
+    size_t count() const { return students_.size(); }
+    const std::vector<Student>& all() const {
+        return students_;
+    }
+
+    private:
+    std::vector<Student> students_;
+};
 
 constexpr int kPort = 8787;
 constexpr int kBacklog = 8; // kernel accept queue
@@ -26,6 +44,9 @@ std::atomic<bool> running{true};
 
 // note: prometheus-client-c library uses atomic ops/internal locking (so counter is safe read/write)
 prom_counter_t* request_counter = nullptr;
+prom_gauge_t* student_gauge = nullptr;
+
+Students students;
 
 extern "C" void handle_sigint(int) {running = false;}
 
@@ -112,6 +133,38 @@ int handle_get_hostname(int client_fd) {
     return write_all(client_fd, "OK " + std::string(hostname.data()) + "\n");
 }
 
+int handle_add_student(int client_fd, std::string_view args) {
+    // add_student Alice 20
+    size_t sep = args.rfind(' ');
+    if (sep == std::string_view::npos) return write_line(client_fd, "ERROR bad args");
+
+    std::string name(args.substr(0, sep));
+    std::string age_str(args.substr(sep + 1));
+    int age;
+    try {
+        age = std::stoi(age_str);
+    } 
+    catch(...) {
+        return write_line(client_fd, "ERROR bad args: arge");
+    }
+
+    students.add(std::move(name), age);
+    prom_gauge_set(student_gauge, students.count(), nullptr);
+    return write_line(client_fd, "OK:added student");
+}
+
+int handle_get_students(int client_fd) {
+    std::string body = "OK " + std::to_string(students.count()) + " ";
+    bool first = true;
+    for (const auto& stud : students.all()) {
+        if (!first) body += ", ";
+        body += stud.name + " : " + std::to_string(stud.age);
+        first = false;
+    }
+
+    return write_line(client_fd, body);
+}
+
 int handle_client(int client_fd) {
     char request[kBufSize];
     ssize_t n = read_line(client_fd, request, sizeof(request));
@@ -119,6 +172,8 @@ int handle_client(int client_fd) {
     if (n == 0) return 0;
 
     std::string_view req(request);
+    constexpr std::string_view kAddPrefix = "add_student "; // split func and args
+
     if (req == "get_time") {
         prom_counter_inc(request_counter, (const char*[]){"get_time"});
         return handle_get_time(client_fd);
@@ -126,6 +181,14 @@ int handle_client(int client_fd) {
     if (req == "get_hostname") {
         prom_counter_inc(request_counter, (const char*[]){"get_hostname"});
         return handle_get_hostname(client_fd);
+    }
+    if (req == "get_students") {
+        prom_counter_inc(request_counter, (const char*[]){"get_students"});
+        return handle_get_students(client_fd);
+    }
+    if (req.substr(0, kAddPrefix.size()) == kAddPrefix) {
+        prom_counter_inc(request_counter, (const char*[]){"add_student"});
+        return handle_add_student(client_fd, req.substr(kAddPrefix.size()));
     }
     prom_counter_inc(request_counter, (const char*[]){"unknown"});
     return write_line(client_fd, "ERROR unknown_request");
@@ -179,6 +242,9 @@ int main(void) {
 	request_counter = prom_collector_registry_must_register_metric(
 		prom_counter_new("server_requests_total", "Total number of processed requests", 1, keys)
 	);
+    student_gauge = prom_collector_registry_must_register_metric(
+        prom_gauge_new("total_students", "Current number of enrolled students", 0, nullptr)
+    );
 	
 	// start Prometheus HTTP server on port 8000 (background thread)
 	MHD_Daemon* daemon = promhttp_start_daemon(MHD_USE_SELECT_INTERNALLY, 8000, nullptr, nullptr);
